@@ -1,0 +1,17 @@
+.DS_Store
+Thumbs.db
+node_modules
+public
+prof
+tsconfig.tsbuildinfo
+.obsidian
+.quartz-cache
+private/
+.replit
+replit.nix
+
+# Internal session logs — not for public blog
+content/진행사항/
+content/_drafts/
+content/환영합니다!.md
+*.log
