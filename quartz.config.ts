@@ -16,7 +16,7 @@ const config: QuartzConfig = {
       provider: "plausible",
     },
     locale: "ko-KR",
-    baseUrl: "vvulcanos.github.io/comfui-blog",
+    baseUrl: "vvulcanos.github.io",
     ignorePatterns: ["진행사항", "templates", ".obsidian", "환영합니다!.md", "_drafts"],
     defaultDateType: "modified",
     theme: {
