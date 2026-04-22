@@ -12,6 +12,8 @@ replit.nix
 
 # Internal session logs — not for public blog
 content/진행사항/
-content/_drafts/
 content/환영합니다!.md
 *.log
+
+# Note: content/_drafts/ 는 git 에 추적됨. Quartz ignorePatterns 로
+# 빌드에서만 제외. 재작성 중인 초안, 원본 백업, 템플릿을 담기 위함.
