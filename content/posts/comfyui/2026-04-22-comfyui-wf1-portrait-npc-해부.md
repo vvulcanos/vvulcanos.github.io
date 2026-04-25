@@ -2,8 +2,8 @@
 title: "ComfyUI · WF1 portrait-npc 해부 — 한 NPC 의 초상화 5종을 얼굴 일관성 유지하며 생성"
 date: 2026-04-22
 category: comfyui
-tags: [comfyui, workflow, sdxl, ipadapter, controlnet, rembg, lora, portrait-pipeline]
-summary: "체크포인트 3종 + 얼굴 임베딩 공유 구조로 한 번에 5장을 같은 얼굴로 떨어뜨리는 그래프"
+tags: [comfyui, workflow, sdxl, ipadapter, controlnet, rembg, portrait-pipeline]
+summary: "체크포인트 2종 + 얼굴 임베딩 공유 구조로 한 번에 5장을 같은 얼굴로 떨어뜨리는 그래프"
 draft: false
 ---
 
@@ -21,7 +21,7 @@ draft: false
 - `<CID>_illustration-halfbody_00001.png` — 일러 반신상 (대화 씬용, 실사에 덧칠)
 - `<CID>_illustration-halfbody-nobg_00001.png` — 위의 배경 제거본 (합성용)
 - `<CID>_bust_00001.png` — 흉상 1024×1024 크롭 (아바타·프로필)
-- `<CID>_illustration-attention-nobg_00001.png` — 차렷자세 전신 배경 제거 (WF2 로 이어져 픽셀 스프라이트가 됨)
+- `<CID>_illustration-attention-nobg_00001.png` — 차렷자세 전신 배경 제거 (WF2 에서 참조 이미지 또는 VLM 캡션 입력으로 사용)
 
 `<CID>` 는 `slug_YYYYMMDD_rand6` 형식 문자열. WF1 뿐 아니라 WF2/3/4 결과물까지 같은 CID 접두어로 묶여서, 파이프라인 전체에서 한 NPC 의 자산이 파일명만 보고 찾아진다.
 
@@ -36,17 +36,17 @@ draft: false
 - **일관성**: 얼굴 임베딩이 G2 · G4 에서 같은 값으로 재사용돼야 얼굴이 안 흔들린다. 워크플로를 쪼개서 "일러 전용", "흉상 전용", "차렷자세 전용" 따로 돌리면 매 실행마다 얼굴 임베딩을 다시 만들어야 하고, 그 과정에서 얼굴 YOLO 가 잡는 영역이 미세하게 달라지면서 임베딩이 흔들린다. 같은 그래프 안에 두면 한 번 만든 임베딩이 그대로 공급된다.
 - **품질**: 하나의 프롬프트 · 하나의 KSampler 에 "실사 / 일러 / 흉상 / 차렷자세" 네 요구를 섞으면 어느 쪽도 깔끔하게 안 찍힌다. G1(실사, 구도 잡기용) → G2(일러 img2img, 스타일 입힘) → G3(배경 제거) → G3-2(흉상 크롭) → G4(다른 포즈 · 같은 얼굴) 순으로 **단계마다 하나의 목표만** 주고 이어 붙여야 각 단계가 덜 힘들고 품질이 유지된다.
 
-파이프라인 전체(WF1 → WF2 → WF3 → WF4)를 쪼개 놓은 이유도 같은 논리다. 일러 → 픽셀 → 4방향 → 애니메이션을 한 그래프에 욱여넣으면 외부 API 호출 순서 · 재시도 · 중간 결과 확인이 지옥이 되고, 특히 픽셀화 · 회전 · 애니메이션은 PixelLab API 를 여러 번 호출하는 구조라 실패 겹칠 때 복구가 불가능해진다. 단계별 파일로 산출물을 박제하면서 이어가는 쪽이 안정적. 쪼개는 기준 상세는 [[posts/comfyui/2026-04-22-comfyui-워크플로-설계-원칙|워크플로 설계 원칙]] 에.
+파이프라인 전체(WF1 → WF2 → WF4)를 쪼개 놓은 이유도 같은 논리다. 일러 → 픽셀 4방향 → 애니메이션을 한 그래프에 욱여넣으면 외부 API 호출 순서 · 재시도 · 중간 결과 확인이 지옥이 되고, 특히 픽셀 4방향 생성 · 애니메이션은 PixelLab API 를 여러 번 호출하는 구조라 실패 겹칠 때 복구가 불가능해진다. 단계별 파일로 산출물을 박제하면서 이어가는 쪽이 안정적. 쪼개는 기준 상세는 [[posts/comfyui/2026-04-22-comfyui-워크플로-설계-원칙|워크플로 설계 원칙]] 에. (초기 설계의 WF3 회전 단계는 PixelLab `create_character` 가 4방향을 한 번에 내주면서 WF2 로 흡수됐다 — 이 결정의 배경은 [[posts/comfyui/2026-04-25-comfyui-wf2-pixellab-mcp|WF2 글]] 에.)
 
 ## 그래프 구조 분해
 
 ComfyUI 안에서 6 개 그룹(G0 ~ G3-2) 에 G4 가 덧붙는 구조. 그룹 박스로 쪼개 놓은 건 실행 순서가 머릿속에서 선형으로 따라가지게 하려는 목적.
 
 ```
-G0    로더 (체크포인트 3개, LoRA, ControlNet, IPAdapter, VAE)
+G0    로더 (체크포인트 2개, ControlNet, IPAdapter, VAE)
 G0.5  얼굴 YOLO → 얼굴 crop → IPAdapter 얼굴 임베딩
 G1    RealVis 로 실사 반신상 (768×1024)
-G2    G1 결과를 Juggernaut + pixel-art-xl 로 img2img (denoise 0.55)
+G2    G1 결과를 Animagine XL 3.1 로 img2img (denoise 0.55)
 G3    G2 일러 결과를 rembg 로 배경 제거
 G3-2  흉상 1024×1024 크롭
 G4    Animagine + OpenPose + IPAdapter(G2 얼굴 재사용) → 차렷자세 → rembg
@@ -54,13 +54,15 @@ G4    Animagine + OpenPose + IPAdapter(G2 얼굴 재사용) → 차렷자세 →
 
 G1 이 먼저 돌아야 G0.5 의 얼굴 임베딩이 G2 / G4 로 흘러갈 수 있고, G3 는 G2 결과를 받고, G3-2 는 G3 결과를 받는다. 그래서 선형.
 
-### G0 — 체크포인트 3 개를 한 그래프에 올려놓는 이유
+### G0 — 체크포인트 2 개를 한 그래프에 올려놓는 이유
 
-`realvisxl_v4`(실사) · `animagine-xl-3.1`(일러) · `juggernaut_xl_v9`(img2img 베이스) 세 개가 동시에 로드된다. 여기에 `pixel-art-xl` LoRA 가 Juggernaut 위에 얹힌다.
+`realvisxl_v4`(실사, G1 전용) · `animagine-xl-3.1`(일러, G2 · G4 공용) 두 개가 동시에 로드된다.
 
-RX 9070 XT 16GB 에서 이건 빡빡하다. ComfyUI 가 그룹 단위로 모델을 알아서 언로드 · 재로드하면서 돌려서 **세 체크포인트가 한꺼번에 VRAM 에 올라가는 순간은 없다**. 첫 실행에 MIOpen 튜닝까지 겹치면 10~20 분 나오기도 한다 ([[posts/comfyui/2026-04-22-comfyui-환경-셋업|환경 셋업]] 의 MIOpen 항목 참고). 캐시가 달궈진 뒤에는 1~3 분.
+RX 9070 XT 16GB 에서 두 SDXL 체크포인트를 한 그래프에 묶는 건 여전히 빡빡하다. ComfyUI 가 그룹 단위로 모델을 알아서 언로드 · 재로드하면서 돌려서 **둘이 한꺼번에 VRAM 에 올라가는 순간은 없다**. 첫 실행에 MIOpen 튜닝까지 겹치면 10~20 분 나오기도 한다 ([[posts/comfyui/2026-04-22-comfyui-환경-셋업|환경 셋업]] 의 MIOpen 항목 참고). 캐시가 달궈진 뒤에는 1~3 분.
 
 *왜 하나로 묶었나*: 체크포인트마다 파이프라인을 쪼개면 그룹 경계에서 얼굴 임베딩을 다시 만들어야 해서 얼굴 일관성이 무너진다. 한 그래프 안에서 돌려야 G0.5 임베딩이 G2 · G4 로 같은 값으로 흘러간다.
+
+> 초기 설계엔 `juggernaut_xl_v9` + `pixel-art-xl` LoRA 라인을 픽셀 변환용으로 더 얹어 두려 했는데, WF2 가 [[posts/comfyui/2026-04-25-comfyui-wf2-pixellab-mcp|MCP 기반 텍스트 캐릭터 생성]] 으로 바뀌면서 이 라인은 어떤 샘플러에도 연결되지 않게 됐고, 결국 워크플로에서 들어냈다. 이 글의 코드블록 · 표 · 재현 준비물은 정리된 이후 기준.
 
 ### G0.5 — 얼굴을 따로 뽑는 이유
 
@@ -76,7 +78,7 @@ RX 9070 XT 16GB 에서 이건 빡빡하다. ComfyUI 가 그룹 단위로 모델�
 | G2 일러 img2img | 28 | 6.5 | euler_ancestral | normal | **0.55** |
 | G4 차렷자세 | 30 | 7.0 | euler_ancestral | normal | 1.0 |
 
-G2 의 `denoise=0.55` 가 핵심. G1 실사 반신상의 VAEDecode 결과를 다시 VAEEncode + ImageScale 거쳐 latent 로 바꿔 넣고, 그걸 기반으로 55% 만 재생성. 구도 · 옷 · 자세는 유지되고 스타일만 일러로 바뀐다.
+G2 의 `denoise=0.55` 가 핵심. G1 실사 반신상의 VAEDecode 결과를 다시 VAEEncode 해 latent 로 바꿔 넣고, 그걸 기반으로 55% 만 재생성. 구도 · 옷 · 자세는 유지되고 스타일만 일러로 바뀐다.
 
 순수 일러로 바로 가도 되는 거 아닌가 싶지만, 일러 체크포인트에 "한복 입은 조선 여인 정면 반신상" 같은 프롬프트 넣으면 옷 구조나 얼굴 비율이 매번 흔들려서 G1 실사 단계를 **구조 고정용**으로 끼워 넣은 것.
 
@@ -93,7 +95,7 @@ G1 · G2 · G4 모두 positive / negative 를 각각 두 조각씩으로 더 쪼
 
 ### G4 — 차렷자세 전신, 픽셀 사이드로 이어지는 접점
 
-실사 반신상 · 일러 반신상 · 흉상까지는 "화면 안에서 보여주는 용도" 고, G4 는 결이 다르다. **전신 차렷자세(정면, 팔 차렷)로 뽑아 배경까지 지워 놓는다**. 이 포즈 · 구도가 WF2 의 `/image-to-pixelart` 로 들어갈 때 실루엣이 가장 깔끔하게 픽셀화된다 — 팔 · 다리가 몸통에 붙어 있는 자세라 64×64 그리드에서 형태가 뭉치지 않는다.
+실사 반신상 · 일러 반신상 · 흉상까지는 "화면 안에서 보여주는 용도" 고, G4 는 결이 다르다. **전신 차렷자세(정면, 팔 차렷)로 뽑아 배경까지 지워 놓는다**. 이 포즈 · 구도가 WF2 에서 두 가지로 쓰인다 — 사용자가 픽셀 캐릭터 톤을 정할 때 눈으로 보는 참조, 그리고 선택적으로 VLM(WD14) 캡션을 돌릴 때의 입력. 정면 차렷자세는 둘 다에 유리한데, VLM 이 옷 · 헤어스타일을 분리해서 태그로 떨어뜨리기 쉽고, 사용자도 인상의 핵심을 한눈에 파악할 수 있어서.
 
 G4 블록의 노드 ID 를 보면 33–43 + 86–89 로 두 덩이에 나뉘어 있다. 처음 설계할 때 ID 33–42 로 열 개를 예약해 뒀는데, 이후 프롬프트 4 토막 쪼개기를 적용하면서 `CLIPTextEncode` 두 개 + `ConditioningConcat` 두 개가 더 필요해졌다. 그 시점엔 이미 그래프 다른 쪽에 79–85 가 점유된 상태라 비어 있던 86–89 를 땡겨 썼다.
 
@@ -102,7 +104,7 @@ G4 블록의 노드 ID 를 보면 33–43 + 86–89 로 두 덩이에 나뉘어 
 | 33 | PrimitiveNode — Character ID |
 | 34 | LoadImage — `input/poses/attention.png` |
 | 35 | EmptyLatentImage 768×1024 |
-| 36 | IPAdapterEmbeds (G2 얼굴 임베딩 재사용, weight 0.7) |
+| 36 | IPAdapterEmbeds (G2 얼굴 임베딩 재사용, weight 0.85) |
 | 37 | ControlNetApplyAdvanced (OpenPose strength 0.8) |
 | 38 | CLIPTextEncode `char_pos` ★ |
 | 86 | CLIPTextEncode `comp_pos` |
@@ -133,15 +135,14 @@ CID 하나만 바꾸면 다섯 장의 파일명이 동시에 갱신된다. `Stri
 
 ### 재현 준비물
 
-- **체크포인트 3 종** — `realvisxl_v4`, `animagine-xl-3.1`, `juggernaut_xl_v9`
-- **LoRA** — `pixel-art-xl.safetensors`
+- **체크포인트 2 종** — `realvisxl_v4`, `animagine-xl-3.1`
 - **ControlNet** — `xinsir-openpose-sdxl.safetensors`
-- **IPAdapter** — `ip-adapter-plus-face_sdxl_vit-h.safetensors` + CLIPVision ViT-H
+- **IPAdapter** — `IPAdapterUnifiedLoader` preset `PLUS FACE (portraits)` (내부적으로 `ip-adapter-plus-face_sdxl_vit-h` + CLIPVision ViT-H 를 한 묶음으로 잡음)
 - **얼굴 감지** — `bbox/face_yolov8m.pt`
 - **커스텀 노드** — `comfyui_ipadapter_plus`, `rembg-comfyui-node`, `ComfyUI-Impact-Pack`
 - **포즈** — `input/poses/attention.png`
 
-`extra_model_paths.yaml` 에 `D:/AI/models/*` 가 잡혀 있으면 체크포인트 · 컨트롤넷 · LoRA 는 자동으로 따라온다.
+`extra_model_paths.yaml` 에 `D:/AI/models/*` 가 잡혀 있으면 체크포인트 · 컨트롤넷 은 자동으로 따라온다.
 
 ## 자주 틀리는 지점
 
@@ -188,19 +189,6 @@ CID 하나만 바꾸면 다섯 장의 파일명이 동시에 갱신된다. `Stri
 **해결**: 프롬프트를 `char_*` / `comp_*` 두 축으로 분리 (이 WF1 의 구조). `comp_*` 는 프로젝트 초기에 한 번 정해 놓고 안 건드리기.
 
 **재발 방지 · 확인 방법**: 새 NPC 만들 때 `char_positive` · `char_negative` **두 자리만 수정**해서 바로 실행. 결과가 이상하면 `comp_*` 도 봤는지 자문.
-
-### 증상 — G4 산출물(768×1024 RGBA) 이 PixelLab API 업로드 시 413 Payload Too Large
-
-WF2 로 넘어가 PixelLab `/image-to-pixelart` 호출에서 413 리턴.
-
-**원인**: PNG base64 인코딩이 PixelLab API 의 4MB 한도 초과. 768×1024 RGBA 는 투명 영역이 많으면 압축되지만 패턴이 복잡하면 4MB 근처로 간다.
-
-**해결** (우선순위):
-1. `EmptyLatentImage` 해상도를 512×768 로 축소해 재생성
-2. 원본 PNG 를 `pngquant --quality 65-85` 로 양자화해 크기 절반 이하로
-3. RGBA 의 투명 영역을 clean-up (알파 0 인 픽셀의 RGB 값을 0 으로 통일)
-
-**재발 방지 · 확인 방법**: WF2 진입 전 `<CID>_illustration-attention-nobg_00001.png` 파일 크기가 3MB 이하인지 미리 확인. 넘으면 재생성.
 
 ## 관련
 
